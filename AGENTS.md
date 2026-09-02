@@ -6,28 +6,35 @@
 ## 技术栈
 - Next.js 16 (App Router) + React 19 + TypeScript 5
 - Tailwind CSS 4 + shadcn/ui
-- 数据持久化：localStorage
+- 文章数据：localStorage（个人不共享）
+- 用户名映射：服务端 JSON 文件（多人共享）
 
 ## 目录结构
 ```
 src/
 ├── app/
-│   ├── page.tsx          # 主页面 - 工作台（客户端组件）
-│   ├── layout.tsx        # 根布局
-│   └── globals.css       # 全局样式
-├── components/ui/        # shadcn/ui 组件
+│   ├── page.tsx              # 主页面 - 工作台（客户端组件）
+│   ├── layout.tsx            # 根布局
+│   ├── globals.css           # 全局样式
+│   └── api/usermap/route.ts  # 共享用户名映射 API（GET/POST/DELETE）
+├── components/ui/            # shadcn/ui 组件
 ├── lib/
-│   ├── article-utils.ts  # URL解析、文本格式化、ID生成
-│   ├── store.ts          # localStorage 数据管理（文章+用户名映射）
-│   └── utils.ts          # cn() 工具函数
+│   ├── article-utils.ts      # URL解析、文本格式化、ID生成
+│   ├── store.ts              # localStorage 数据管理（文章）
+│   ├── usermap-file.ts       # 服务端用户名映射文件读写
+│   └── utils.ts              # cn() 工具函数
+data/
+└── usermap.json              # 共享用户名映射数据文件
 ```
 
 ## 核心功能
 1. **文章录入**：输入标题+链接，选择分类（产业稿/新车稿）
 2. **自动提取**：从URL中提取文章ID和用户ID，映射用户名
-3. **状态管理**：勾选推群/客户端状态
-4. **复制功能**：单条复制（标题+换行+链接），批量复制全部
-5. **用户名映射**：管理用户ID→用户名的映射字典
+3. **多选复制**：勾选多条后批量复制（标题+换行+链接格式）
+4. **双击复制文章ID**：双击文章ID单元格即可复制
+5. **拖拽排序**：通过左侧拖拽手柄调整文章顺序
+6. **状态管理**：勾选推群/客户端状态
+7. **共享用户名映射**：通过API管理，多人共享，所有人可见可添加
 
 ## 数据模型
 ```typescript
@@ -44,6 +51,11 @@ interface Article {
   createdAt: number;
 }
 ```
+
+## API 接口
+- `GET /api/usermap` - 获取共享用户名映射
+- `POST /api/usermap` - 批量添加映射 `{ entries: { "userId": "username" } }`
+- `DELETE /api/usermap?uid=xxx` - 删除指定映射
 
 ## URL解析规则
 - 搜狐文章链接格式：`https://www.sohu.com/a/{articleId}_{userId}`

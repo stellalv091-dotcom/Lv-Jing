@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -36,6 +36,8 @@ import {
   Trash2,
   Settings2,
   X,
+  GripVertical,
+  Loader2,
 } from 'lucide-react';
 import { extractFromUrl, formatCopyText, generateId } from '@/lib/article-utils';
 import {
@@ -43,8 +45,6 @@ import {
   type UserMap,
   loadArticles,
   saveArticles,
-  loadUserMap,
-  saveUserMap,
 } from '@/lib/store';
 
 type CategoryFilter = 'all' | 'industry' | 'newcar';
@@ -75,9 +75,41 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
+// API helpers for shared user map
+async function fetchUserMap(): Promise<UserMap> {
+  try {
+    const res = await fetch('/api/usermap');
+    if (res.ok) return res.json();
+  } catch { /* fallback */ }
+  return {};
+}
+
+async function addUserMapEntries(entries: Record<string, string>): Promise<UserMap> {
+  try {
+    const res = await fetch('/api/usermap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries }),
+    });
+    if (res.ok) return res.json();
+  } catch { /* fallback */ }
+  return {};
+}
+
+async function removeUserMapEntry(uid: string): Promise<UserMap> {
+  try {
+    const res = await fetch(`/api/usermap?uid=${encodeURIComponent(uid)}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) return res.json();
+  } catch { /* fallback */ }
+  return {};
+}
+
 export default function Home() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [userMap, setUserMap] = useState<UserMap>({});
+  const [userMapLoading, setUserMapLoading] = useState(true);
   const [filter, setFilter] = useState<CategoryFilter>('all');
 
   // Input state
@@ -94,17 +126,26 @@ export default function Home() {
   // User map dialog
   const [userMapOpen, setUserMapOpen] = useState(false);
   const [batchInput, setBatchInput] = useState('');
+  const [batchAdding, setBatchAdding] = useState(false);
 
   // Delete confirm
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  // Load from localStorage
+  // Drag and drop
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const dragCounter = useRef(0);
+
+  // Load articles from localStorage, user map from API
   useEffect(() => {
     setArticles(loadArticles());
-    setUserMap(loadUserMap());
+    fetchUserMap().then((map) => {
+      setUserMap(map);
+      setUserMapLoading(false);
+    });
   }, []);
 
-  // Persist articles
+  // Persist articles to localStorage
   const updateArticles = useCallback((next: Article[]) => {
     setArticles(next);
     saveArticles(next);
@@ -153,6 +194,16 @@ export default function Home() {
     const ok = await copyToClipboard(text);
     if (ok) {
       setCopiedTag(article.id);
+      setTimeout(() => setCopiedTag(null), 1500);
+    }
+  };
+
+  // Copy article ID on double-click
+  const handleCopyArticleId = async (articleId: string) => {
+    if (!articleId) return;
+    const ok = await copyToClipboard(articleId);
+    if (ok) {
+      setCopiedTag(`id_${articleId}`);
       setTimeout(() => setCopiedTag(null), 1500);
     }
   };
@@ -212,37 +263,95 @@ export default function Home() {
     }
   };
 
-  // Batch add user mappings from textarea
-  const handleBatchAddUserMap = () => {
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDragId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    // Make the drag image slightly transparent
+    const target = e.currentTarget as HTMLElement;
+    requestAnimationFrame(() => {
+      target.style.opacity = '0.5';
+    });
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    const target = e.currentTarget as HTMLElement;
+    target.style.opacity = '1';
+    setDragId(null);
+    setDragOverId(null);
+    dragCounter.current = 0;
+  };
+
+  const handleDragEnter = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    dragCounter.current++;
+    setDragOverId(id);
+  };
+
+  const handleDragLeave = () => {
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setDragOverId(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (!dragId || dragId === targetId) return;
+
+    // Reorder articles array
+    const dragIndex = articles.findIndex((a) => a.id === dragId);
+    const targetIndex = articles.findIndex((a) => a.id === targetId);
+    if (dragIndex === -1 || targetIndex === -1) return;
+
+    const newArticles = [...articles];
+    const [removed] = newArticles.splice(dragIndex, 1);
+    newArticles.splice(targetIndex, 0, removed);
+    updateArticles(newArticles);
+
+    setDragId(null);
+    setDragOverId(null);
+    dragCounter.current = 0;
+  };
+
+  // Batch add user mappings via API
+  const handleBatchAddUserMap = async () => {
     const lines = batchInput
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean);
     if (lines.length === 0) return;
 
-    const next = { ...userMap };
+    setBatchAdding(true);
+    const entries: Record<string, string> = {};
     for (const line of lines) {
-      // 支持格式: "userId username" 或 "userId\tusername" 或 "userId,username"
       const parts = line.split(/[\s,，\t]+/);
       if (parts.length >= 2) {
         const uid = parts[0].trim();
         const name = parts.slice(1).join(' ').trim();
         if (uid && name) {
-          next[uid] = name;
+          entries[uid] = name;
         }
       }
     }
-    setUserMap(next);
-    saveUserMap(next);
+
+    if (Object.keys(entries).length > 0) {
+      const updated = await addUserMapEntries(entries);
+      setUserMap(updated);
+    }
     setBatchInput('');
+    setBatchAdding(false);
   };
 
-  // Remove user mapping
-  const handleRemoveUserMap = (uid: string) => {
-    const next = { ...userMap };
-    delete next[uid];
-    setUserMap(next);
-    saveUserMap(next);
+  // Remove user mapping via API
+  const handleRemoveUserMap = async (uid: string) => {
+    const updated = await removeUserMapEntry(uid);
+    setUserMap(updated);
   };
 
   // Keyboard shortcut: Enter to add
@@ -268,13 +377,17 @@ export default function Home() {
               <Button variant="ghost" size="sm" className="gap-1.5 text-[#6B7280]">
                 <Settings2 className="h-4 w-4" />
                 用户名管理
+                {userMapLoading && <Loader2 className="h-3 w-3 animate-spin" />}
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>用户名映射管理</DialogTitle>
+                <DialogTitle>共享用户名映射</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
+                <p className="text-xs text-[#9CA3AF]">
+                  所有用户共享此映射库，添加后对所有人可见
+                </p>
                 {/* Existing mappings */}
                 <div className="max-h-48 space-y-1.5 overflow-y-auto">
                   {Object.entries(userMap).map(([uid, name]) => (
@@ -314,10 +427,14 @@ export default function Home() {
                   <Button
                     size="sm"
                     onClick={handleBatchAddUserMap}
-                    disabled={!batchInput.trim()}
+                    disabled={!batchInput.trim() || batchAdding}
                     className="w-full"
                   >
-                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    {batchAdding ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    )}
                     批量添加
                   </Button>
                 </div>
@@ -480,6 +597,7 @@ export default function Home() {
           <Table>
             <TableHeader>
               <TableRow className="bg-[#F8F9FA] hover:bg-[#F8F9FA]">
+                <TableHead className="w-[32px]"></TableHead>
                 <TableHead className="w-[44px] text-center">
                   <Checkbox
                     checked={filtered.length > 0 && selectedIds.size === filtered.length}
@@ -492,8 +610,8 @@ export default function Home() {
                 <TableHead className="min-w-[360px] text-xs font-medium text-[#6B7280]">
                   标题 / 链接
                 </TableHead>
-                <TableHead className="w-[130px] text-xs font-medium text-[#6B7280]">
-                  文章ID
+                <TableHead className="w-[140px] text-xs font-medium text-[#6B7280]">
+                  文章ID <span className="text-[#B0B0B0]">(双击复制)</span>
                 </TableHead>
                 <TableHead className="w-[120px] text-xs font-medium text-[#6B7280]">
                   用户名
@@ -512,19 +630,36 @@ export default function Home() {
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-40 text-center text-sm text-[#9CA3AF]">
+                  <TableCell colSpan={9} className="h-40 text-center text-sm text-[#9CA3AF]">
                     {articles.length === 0 ? '暂无文章，请在上方添加' : '当前分类下暂无文章'}
                   </TableCell>
                 </TableRow>
               ) : (
                 filtered.map((article) => {
                   const isSelected = selectedIds.has(article.id);
+                  const isDragging = dragId === article.id;
+                  const isDragOver = dragOverId === article.id && dragId !== article.id;
                   return (
                     <TableRow
                       key={article.id}
-                      className={`group cursor-pointer ${isSelected ? 'bg-blue-50/60' : ''}`}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, article.id)}
+                      onDragEnd={handleDragEnd}
+                      onDragEnter={(e) => handleDragEnter(e, article.id)}
+                      onDragLeave={handleDragLeave}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, article.id)}
+                      className={`group cursor-pointer transition-all ${
+                        isSelected ? 'bg-blue-50/60' : ''
+                      } ${isDragging ? 'opacity-50' : ''} ${
+                        isDragOver ? 'border-t-2 border-t-blue-400' : ''
+                      }`}
                       onClick={() => toggleSelect(article.id)}
                     >
+                      {/* Drag handle */}
+                      <TableCell className="cursor-grab px-1 text-center text-[#D1D5DB] hover:text-[#9CA3AF] active:cursor-grabbing" onClick={(e) => e.stopPropagation()}>
+                        <GripVertical className="inline-block h-4 w-4" />
+                      </TableCell>
                       {/* Select */}
                       <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                         <Checkbox
@@ -559,9 +694,21 @@ export default function Home() {
                           </p>
                         </div>
                       </TableCell>
-                      {/* Article ID */}
-                      <TableCell className="font-mono text-xs text-[#6B7280]">
-                        {article.articleId || '-'}
+                      {/* Article ID - double click to copy */}
+                      <TableCell
+                        className="cursor-pointer select-none font-mono text-xs text-[#6B7280] hover:text-[#2563EB]"
+                        onDoubleClick={() => handleCopyArticleId(article.articleId)}
+                        onClick={(e) => e.stopPropagation()}
+                        title="双击复制文章ID"
+                      >
+                        {copiedTag === `id_${article.articleId}` ? (
+                          <span className="inline-flex items-center gap-1 text-green-600">
+                            <Check className="h-3 w-3" />
+                            已复制
+                          </span>
+                        ) : (
+                          article.articleId || '-'
+                        )}
                       </TableCell>
                       {/* Username */}
                       <TableCell className="text-sm text-[#1A1A1A]">
