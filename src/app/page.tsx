@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -48,6 +49,32 @@ import {
 
 type CategoryFilter = 'all' | 'industry' | 'newcar';
 
+function formatDate(ts: number): string {
+  const d = new Date(ts);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${m}-${day} ${h}:${min}`;
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  }
+}
+
 export default function Home() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [userMap, setUserMap] = useState<UserMap>({});
@@ -59,12 +86,14 @@ export default function Home() {
   const [inputCategory, setInputCategory] = useState<'industry' | 'newcar'>('industry');
 
   // Copy feedback
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedTag, setCopiedTag] = useState<string | null>(null);
+
+  // Multi-select
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // User map dialog
   const [userMapOpen, setUserMapOpen] = useState(false);
-  const [newUserId, setNewUserId] = useState('');
-  const [newUsername, setNewUsername] = useState('');
+  const [batchInput, setBatchInput] = useState('');
 
   // Delete confirm
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -118,44 +147,94 @@ export default function Home() {
     );
   };
 
-  // Copy to clipboard
-  const handleCopy = async (article: Article) => {
+  // Copy single
+  const handleCopySingle = async (article: Article) => {
     const text = formatCopyText(article.title, article.url);
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedId(article.id);
-      setTimeout(() => setCopiedId(null), 1500);
-    } catch {
-      // fallback
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setCopiedId(article.id);
-      setTimeout(() => setCopiedId(null), 1500);
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedTag(article.id);
+      setTimeout(() => setCopiedTag(null), 1500);
+    }
+  };
+
+  // Copy selected
+  const handleCopySelected = async () => {
+    const selected = filtered.filter((a) => selectedIds.has(a.id));
+    if (selected.length === 0) return;
+    const text = selected.map((a) => formatCopyText(a.title, a.url)).join('\n\n');
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedTag('__selected__');
+      setTimeout(() => setCopiedTag(null), 1500);
+    }
+  };
+
+  // Copy all visible
+  const handleCopyAll = async () => {
+    const text = filtered.map((a) => formatCopyText(a.title, a.url)).join('\n\n');
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedTag('__all__');
+      setTimeout(() => setCopiedTag(null), 1500);
     }
   };
 
   // Delete article
   const handleDelete = (id: string) => {
     updateArticles(articles.filter((a) => a.id !== id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     setDeleteId(null);
   };
 
-  // Add user mapping
-  const handleAddUserMap = () => {
-    const uid = newUserId.trim();
-    const name = newUsername.trim();
-    if (!uid || !name) return;
-    const next = { ...userMap, [uid]: name };
+  // Toggle select
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // Select all / deselect all in current view
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((a) => a.id)));
+    }
+  };
+
+  // Batch add user mappings from textarea
+  const handleBatchAddUserMap = () => {
+    const lines = batchInput
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return;
+
+    const next = { ...userMap };
+    for (const line of lines) {
+      // 支持格式: "userId username" 或 "userId\tusername" 或 "userId,username"
+      const parts = line.split(/[\s,，\t]+/);
+      if (parts.length >= 2) {
+        const uid = parts[0].trim();
+        const name = parts.slice(1).join(' ').trim();
+        if (uid && name) {
+          next[uid] = name;
+        }
+      }
+    }
     setUserMap(next);
     saveUserMap(next);
-    setNewUserId('');
-    setNewUsername('');
+    setBatchInput('');
   };
 
   // Remove user mapping
@@ -164,27 +243,6 @@ export default function Home() {
     delete next[uid];
     setUserMap(next);
     saveUserMap(next);
-  };
-
-  // Batch copy all visible
-  const handleBatchCopy = async () => {
-    const text = filtered.map((a) => formatCopyText(a.title, a.url)).join('\n\n');
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedId('__batch__');
-      setTimeout(() => setCopiedId(null), 1500);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setCopiedId('__batch__');
-      setTimeout(() => setCopiedId(null), 1500);
-    }
   };
 
   // Keyboard shortcut: Enter to add
@@ -196,6 +254,8 @@ export default function Home() {
 
   const categoryLabel = (cat: 'industry' | 'newcar') =>
     cat === 'industry' ? '产业稿' : '新车稿';
+
+  const selectedCount = filtered.filter((a) => selectedIds.has(a.id)).length;
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -210,13 +270,13 @@ export default function Home() {
                 用户名管理
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle>用户名映射管理</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 {/* Existing mappings */}
-                <div className="max-h-60 space-y-1.5 overflow-y-auto">
+                <div className="max-h-48 space-y-1.5 overflow-y-auto">
                   {Object.entries(userMap).map(([uid, name]) => (
                     <div
                       key={uid}
@@ -239,22 +299,26 @@ export default function Home() {
                     <p className="py-4 text-center text-sm text-[#9CA3AF]">暂无映射</p>
                   )}
                 </div>
-                {/* Add new */}
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="用户ID"
-                    value={newUserId}
-                    onChange={(e) => setNewUserId(e.target.value)}
-                    className="flex-1"
+                {/* Batch add */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-[#6B7280]">
+                    批量添加（每行一条，格式：用户ID 用户名）
+                  </label>
+                  <Textarea
+                    placeholder={"185351 车动态\n118560 搜狐汽车\n121777 汽车公社"}
+                    value={batchInput}
+                    onChange={(e) => setBatchInput(e.target.value)}
+                    rows={4}
+                    className="resize-none text-sm"
                   />
-                  <Input
-                    placeholder="用户名"
-                    value={newUsername}
-                    onChange={(e) => setNewUsername(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Button size="sm" onClick={handleAddUserMap} disabled={!newUserId.trim() || !newUsername.trim()}>
-                    添加
+                  <Button
+                    size="sm"
+                    onClick={handleBatchAddUserMap}
+                    disabled={!batchInput.trim()}
+                    className="w-full"
+                  >
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    批量添加
                   </Button>
                 </div>
               </div>
@@ -368,25 +432,47 @@ export default function Home() {
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleBatchCopy}
-            disabled={filtered.length === 0}
-            className="gap-1.5"
-          >
-            {copiedId === '__batch__' ? (
-              <>
-                <Check className="h-3.5 w-3.5 text-green-600" />
-                已复制全部
-              </>
-            ) : (
-              <>
-                <ClipboardCopy className="h-3.5 w-3.5" />
-                复制全部
-              </>
+          <div className="flex items-center gap-2">
+            {selectedCount > 0 && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleCopySelected}
+                className="gap-1.5"
+              >
+                {copiedTag === '__selected__' ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" />
+                    已复制 {selectedCount} 条
+                  </>
+                ) : (
+                  <>
+                    <ClipboardCopy className="h-3.5 w-3.5" />
+                    复制选中 ({selectedCount})
+                  </>
+                )}
+              </Button>
             )}
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCopyAll}
+              disabled={filtered.length === 0}
+              className="gap-1.5"
+            >
+              {copiedTag === '__all__' ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-green-600" />
+                  已复制全部
+                </>
+              ) : (
+                <>
+                  <ClipboardCopy className="h-3.5 w-3.5" />
+                  复制全部
+                </>
+              )}
+            </Button>
+          </div>
         </div>
 
         {/* Table */}
@@ -394,6 +480,15 @@ export default function Home() {
           <Table>
             <TableHeader>
               <TableRow className="bg-[#F8F9FA] hover:bg-[#F8F9FA]">
+                <TableHead className="w-[44px] text-center">
+                  <Checkbox
+                    checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                    onCheckedChange={toggleSelectAll}
+                  />
+                </TableHead>
+                <TableHead className="w-[90px] text-xs font-medium text-[#6B7280]">
+                  日期
+                </TableHead>
                 <TableHead className="min-w-[360px] text-xs font-medium text-[#6B7280]">
                   标题 / 链接
                 </TableHead>
@@ -403,13 +498,13 @@ export default function Home() {
                 <TableHead className="w-[120px] text-xs font-medium text-[#6B7280]">
                   用户名
                 </TableHead>
-                <TableHead className="w-[90px] text-center text-xs font-medium text-[#6B7280]">
+                <TableHead className="w-[70px] text-center text-xs font-medium text-[#6B7280]">
                   推群
                 </TableHead>
-                <TableHead className="w-[90px] text-center text-xs font-medium text-[#6B7280]">
+                <TableHead className="w-[70px] text-center text-xs font-medium text-[#6B7280]">
                   客户端
                 </TableHead>
-                <TableHead className="w-[100px] text-center text-xs font-medium text-[#6B7280]">
+                <TableHead className="w-[80px] text-center text-xs font-medium text-[#6B7280]">
                   操作
                 </TableHead>
               </TableRow>
@@ -417,106 +512,127 @@ export default function Home() {
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-40 text-center text-sm text-[#9CA3AF]">
+                  <TableCell colSpan={8} className="h-40 text-center text-sm text-[#9CA3AF]">
                     {articles.length === 0 ? '暂无文章，请在上方添加' : '当前分类下暂无文章'}
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((article) => (
-                  <TableRow key={article.id} className="group">
-                    {/* Title + URL */}
-                    <TableCell className="py-2.5">
-                      <div className="space-y-1">
-                        <div className="flex items-start gap-2">
-                          <Badge
-                            variant="secondary"
-                            className={`shrink-0 text-[10px] font-normal ${
-                              article.category === 'industry'
-                                ? 'bg-[#EEF2FF] text-[#6366F1]'
-                                : 'bg-[#ECFEFF] text-[#0891B2]'
-                            }`}
-                          >
-                            {categoryLabel(article.category)}
-                          </Badge>
-                          <span className="text-sm leading-snug text-[#1A1A1A]">
-                            {article.title}
-                          </span>
+                filtered.map((article) => {
+                  const isSelected = selectedIds.has(article.id);
+                  return (
+                    <TableRow
+                      key={article.id}
+                      className={`group cursor-pointer ${isSelected ? 'bg-blue-50/60' : ''}`}
+                      onClick={() => toggleSelect(article.id)}
+                    >
+                      {/* Select */}
+                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelect(article.id)}
+                        />
+                      </TableCell>
+                      {/* Date */}
+                      <TableCell className="text-xs text-[#6B7280]">
+                        {formatDate(article.createdAt)}
+                      </TableCell>
+                      {/* Title + URL */}
+                      <TableCell className="py-2.5">
+                        <div className="space-y-1">
+                          <div className="flex items-start gap-2">
+                            <Badge
+                              variant="secondary"
+                              className={`shrink-0 text-[10px] font-normal ${
+                                article.category === 'industry'
+                                  ? 'bg-[#EEF2FF] text-[#6366F1]'
+                                  : 'bg-[#ECFEFF] text-[#0891B2]'
+                              }`}
+                            >
+                              {categoryLabel(article.category)}
+                            </Badge>
+                            <span className="text-sm leading-snug text-[#1A1A1A]">
+                              {article.title}
+                            </span>
+                          </div>
+                          <p className="pl-[52px] truncate text-xs text-[#9CA3AF]">
+                            {article.url}
+                          </p>
                         </div>
-                        <p className="pl-[52px] truncate text-xs text-[#9CA3AF]">
-                          {article.url}
-                        </p>
-                      </div>
-                    </TableCell>
-                    {/* Article ID */}
-                    <TableCell className="font-mono text-xs text-[#6B7280]">
-                      {article.articleId || '-'}
-                    </TableCell>
-                    {/* Username */}
-                    <TableCell className="text-sm text-[#1A1A1A]">
-                      {article.username || '-'}
-                    </TableCell>
-                    {/* Pushed to group */}
-                    <TableCell className="text-center">
-                      <Checkbox
-                        checked={article.pushedToGroup}
-                        onCheckedChange={() => handleToggle(article.id, 'pushedToGroup')}
-                        className={
-                          article.pushedToGroup
-                            ? 'border-green-600 bg-green-600 data-[state=checked]:bg-green-600'
-                            : ''
-                        }
-                      />
-                    </TableCell>
-                    {/* Added to client */}
-                    <TableCell className="text-center">
-                      <Checkbox
-                        checked={article.addedToClient}
-                        onCheckedChange={() => handleToggle(article.id, 'addedToClient')}
-                        className={
-                          article.addedToClient
-                            ? 'border-orange-500 bg-orange-500 data-[state=checked]:bg-orange-500'
-                            : ''
-                        }
-                      />
-                    </TableCell>
-                    {/* Actions */}
-                    <TableCell className="text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleCopy(article)}
-                          className="h-7 px-2 text-[#6B7280] hover:text-[#2563EB]"
-                        >
-                          {copiedId === article.id ? (
-                            <Check className="h-3.5 w-3.5 text-green-600" />
+                      </TableCell>
+                      {/* Article ID */}
+                      <TableCell className="font-mono text-xs text-[#6B7280]">
+                        {article.articleId || '-'}
+                      </TableCell>
+                      {/* Username */}
+                      <TableCell className="text-sm text-[#1A1A1A]">
+                        {article.username || '-'}
+                      </TableCell>
+                      {/* Pushed to group */}
+                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={article.pushedToGroup}
+                          onCheckedChange={() => handleToggle(article.id, 'pushedToGroup')}
+                          className={
+                            article.pushedToGroup
+                              ? 'border-green-600 bg-green-600 data-[state=checked]:bg-green-600'
+                              : ''
+                          }
+                        />
+                      </TableCell>
+                      {/* Added to client */}
+                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={article.addedToClient}
+                          onCheckedChange={() => handleToggle(article.id, 'addedToClient')}
+                          className={
+                            article.addedToClient
+                              ? 'border-orange-500 bg-orange-500 data-[state=checked]:bg-orange-500'
+                              : ''
+                          }
+                        />
+                      </TableCell>
+                      {/* Actions */}
+                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleCopySingle(article)}
+                            className="h-7 px-2 text-[#6B7280] hover:text-[#2563EB]"
+                            title="复制单条"
+                          >
+                            {copiedTag === article.id ? (
+                              <Check className="h-3.5 w-3.5 text-green-600" />
+                            ) : (
+                              <ClipboardCopy className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                          {deleteId === article.id ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDelete(article.id)}
+                              className="h-7 px-2 text-red-500 hover:text-red-600"
+                              title="确认删除"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </Button>
                           ) : (
-                            <ClipboardCopy className="h-3.5 w-3.5" />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteId(article.id)}
+                              className="h-7 px-2 text-[#9CA3AF] hover:text-red-500"
+                              title="删除"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           )}
-                        </Button>
-                        {deleteId === article.id ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(article.id)}
-                            className="h-7 px-2 text-red-500 hover:text-red-600"
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeleteId(article.id)}
-                            className="h-7 px-2 text-[#9CA3AF] hover:text-red-500"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
