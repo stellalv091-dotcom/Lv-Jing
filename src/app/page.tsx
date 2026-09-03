@@ -1041,9 +1041,8 @@ export default function Home() {
                 </div>
               </SheetContent>
             </Sheet>
-            <Dialog open={userMapOpen} onOpenChange={(open) => {
+                        <Dialog open={userMapOpen} onOpenChange={(open) => {
               setUserMapOpen(open);
-              // Refresh userMap when dialog opens
               if (open) {
                 fetchUserMap().then((map) => setUserMap(map));
               }
@@ -1055,59 +1054,148 @@ export default function Home() {
                   {userMapLoading && <Loader2 className="h-3 w-3 animate-spin" />}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-lg">
+              <DialogContent className="max-w-3xl max-h-[80vh]">
                 <DialogHeader>
                   <DialogTitle>共享用户名映射</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                   <p className="text-xs text-[#9CA3AF]">
-                    所有用户共享此映射库，点击可编辑用户名
+                    所有用户共享此映射库，可直接在表格中编辑
                   </p>
-                  <div className="max-h-60 space-y-1.5 overflow-y-auto">
-                    {Object.entries(userMap).map(([uid, name]) => (
-                      <UserMapEntry
-                        key={uid}
-                        uid={uid}
-                        name={name}
-                        onUpdate={(newName) => handleUpdateUserMap(uid, newName)}
-                        onRemove={() => handleRemoveUserMap(uid)}
-                      />
-                    ))}
-                    {Object.keys(userMap).length === 0 && !userMapLoading && (
-                      <p className="py-4 text-center text-sm text-[#9CA3AF]">暂无映射</p>
-                    )}
-                    {userMapLoading && (
-                      <p className="py-4 text-center text-sm text-[#9CA3AF]">加载中...</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <label className="block text-xs font-medium text-[#6B7280]">
-                      批量添加（每行一条，格式：用户ID 用户名）
-                    </label>
-                    <Textarea
-                      placeholder={"185351 车动态\n118560 搜狐汽车\n121777 汽车公社"}
-                      value={batchInput}
-                      onChange={(e) => setBatchInput(e.target.value)}
-                      rows={4}
-                      className="resize-none text-sm"
+
+                  {/* 快速添加 */}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="用户 ID"
+                      value={quickUid}
+                      onChange={(e) => setQuickUid(e.target.value.replace(/\D/g, ''))}
+                      className="flex-1 text-sm"
+                    />
+                    <Input
+                      placeholder="用户名"
+                      value={quickName}
+                      onChange={(e) => setQuickName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleQuickAdd();
+                      }}
+                      className="flex-1 text-sm"
                     />
                     <Button
                       size="sm"
-                      onClick={handleBatchAddUserMap}
-                      disabled={!batchInput.trim() || batchAdding}
-                      className="w-full"
+                      onClick={handleQuickAdd}
+                      disabled={!quickUid.trim() || !quickName.trim() || quickAdding}
                     >
-                      {batchAdding ? (
-                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Plus className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      批量添加
+                      {quickAdding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                     </Button>
+                  </div>
+                  {quickMessage && (
+                    <p className={`text-xs ${quickMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                      {quickMessage.text}
+                    </p>
+                  )}
+
+                  {/* 表格 */}
+                  <div className="max-h-96 overflow-y-auto rounded-lg border">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-[#F9FAFB] border-b">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-[#6B7280]">用户 ID</th>
+                          <th className="px-3 py-2 text-left font-medium text-[#6B7280]">用户名</th>
+                          <th className="px-3 py-2 text-right font-medium text-[#6B7280] w-20">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(userMap).map(([uid, name]) => (
+                          <tr key={uid} className="border-b last:border-b-0 hover:bg-[#F9FAFB]">
+                            <td className="px-3 py-2 font-mono text-[#6B7280]">{uid}</td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                value={name}
+                                onChange={(e) => {
+                                  const newName = e.target.value;
+                                  setUserMap(prev => ({ ...prev, [uid]: newName }));
+                                }}
+                                onBlur={() => handleUpdateUserMap(uid, name)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    (e.target as HTMLInputElement).blur();
+                                  }
+                                }}
+                                className="w-full bg-transparent border-none outline-none focus:bg-white focus:ring-1 focus:ring-[#2563EB] rounded px-1 py-0.5"
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemoveUserMap(uid)}
+                                className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                        {Object.keys(userMap).length === 0 && !userMapLoading && (
+                          <tr>
+                            <td colSpan={3} className="px-3 py-8 text-center text-[#9CA3AF]">暂无映射</td>
+                          </tr>
+                        )}
+                        {userMapLoading && (
+                          <tr>
+                            <td colSpan={3} className="px-3 py-8 text-center text-[#9CA3AF]">加载中...</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* 批量添加 */}
+                  <div className="space-y-2">
+                    <label className="block text-xs font-medium text-[#6B7280]">
+                      批量添加（每行一条，格式：用户 ID 用户名）
+                    </label>
+                    <Textarea
+                      placeholder={"117917 王新喜\n115831 CNMO 科技\n120816185 豹变"}
+                      value={batchInput}
+                      onChange={(e) => setBatchInput(e.target.value)}
+                      rows={3}
+                      className="resize-none text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={handleBatchAddUserMap}
+                        disabled={!batchInput.trim() || batchAdding}
+                        className="flex-1"
+                      >
+                        {batchAdding ? (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="mr-1.5 h-3.5 w-3.5" />
+                        )}
+                        批量添加
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => fetchUserMap().then((map) => setUserMap(map))}
+                        disabled={userMapLoading}
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${userMapLoading ? 'animate-spin' : ''}`} />
+                      </Button>
+                    </div>
+                    {batchMessage && (
+                      <p className={`text-xs ${batchMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                        {batchMessage.text}
+                      </p>
+                    )}
                   </div>
                 </div>
               </DialogContent>
             </Dialog>
+
           </div>
         </div>
       </header>
