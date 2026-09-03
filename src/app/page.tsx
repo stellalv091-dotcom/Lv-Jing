@@ -48,6 +48,8 @@ import {
   History,
   Sparkles,
   Car,
+  ChevronDown,
+  Copy,
 } from 'lucide-react';
 import { extractFromUrl, formatCopyText, generateId } from '@/lib/article-utils';
 import {
@@ -74,6 +76,13 @@ function formatShortDate(ts: number): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${m}-${day}`;
+}
+
+function formatTime(ts: number): string {
+  const d = new Date(ts);
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${min}`;
 }
 
 function getTodayKey(): string {
@@ -183,6 +192,8 @@ export default function Home() {
 
   // History panel
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+  const [historySelectedIds, setHistorySelectedIds] = useState<Set<string>>(new Set());
 
   // Load articles: today's are blank, load all for history
   useEffect(() => {
@@ -442,6 +453,78 @@ export default function Home() {
     setUserMap(updated);
   };
 
+  // History panel functions
+  const toggleDateExpanded = (date: string) => {
+    setExpandedDates((prev) => {
+      const next = new Set(prev);
+      if (next.has(date)) {
+        next.delete(date);
+      } else {
+        next.add(date);
+      }
+      return next;
+    });
+  };
+
+  const toggleHistorySelect = (id: string) => {
+    setHistorySelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleHistoryGroupSelect = (date: string) => {
+    const groupArticles = historyGroups[date];
+    const allSelected = groupArticles.every((a) => historySelectedIds.has(a.id));
+    setHistorySelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        groupArticles.forEach((a) => next.delete(a.id));
+      } else {
+        groupArticles.forEach((a) => next.add(a.id));
+      }
+      return next;
+    });
+  };
+
+  const handleHistoryCopySingle = async (article: Article) => {
+    const text = formatCopyText(article.title, article.url);
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedTag(`history_${article.id}`);
+      setTimeout(() => setCopiedTag(null), 1500);
+    }
+  };
+
+  const handleHistoryCopyGroup = async (date: string) => {
+    const groupArticles = historyGroups[date];
+    const text = groupArticles
+      .map((a) => formatCopyText(a.title, a.url))
+      .join('\n\n');
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedTag(`history_group_${date}`);
+      setTimeout(() => setCopiedTag(null), 1500);
+    }
+  };
+
+  const handleHistoryCopySelected = async () => {
+    const selected = allArticles.filter((a) => historySelectedIds.has(a.id));
+    const text = selected
+      .map((a) => formatCopyText(a.title, a.url))
+      .join('\n\n');
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedTag('history_selected');
+      setTimeout(() => setCopiedTag(null), 1500);
+    }
+  };
+
   // Keyboard shortcut: Enter to add
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && inputTitle.trim() && inputUrl.trim()) {
@@ -453,6 +536,7 @@ export default function Home() {
     cat === 'industry' ? '产业稿' : '新车稿';
 
   const selectedCount = filtered.filter((a) => selectedIds.has(a.id)).length;
+  const historySelectedCount = allArticles.filter((a) => historySelectedIds.has(a.id)).length;
 
   // History data grouped by date
   const historyGroups = groupByDate(allArticles);
@@ -485,59 +569,187 @@ export default function Home() {
                   )}
                 </Button>
               </SheetTrigger>
-              <SheetContent className="w-[500px] overflow-y-auto sm:max-w-[500px]">
+              <SheetContent className="w-[90vw] overflow-y-auto sm:max-w-[1200px]">
                 <SheetHeader>
-                  <SheetTitle>历史记录</SheetTitle>
+                  <div className="flex items-center justify-between">
+                    <SheetTitle>历史记录</SheetTitle>
+                    {historySelectedCount > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => handleHistoryCopySelected()}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        复制选中 ({historySelectedCount})
+                      </Button>
+                    )}
+                  </div>
+                  {/* Overall statistics */}
+                  <div className="flex items-center gap-4 text-xs text-[#6B7280]">
+                    <span>共 {allArticles.length} 篇</span>
+                    <span className="text-[#6366F1]">产业稿 {allArticles.filter(a => a.category === 'industry').length}</span>
+                    <span className="text-[#0891B2]">新车稿 {allArticles.filter(a => a.category === 'newcar').length}</span>
+                    <span className="text-green-600">已推群 {allArticles.filter(a => a.pushedToGroup).length}</span>
+                    <span className="text-orange-500">已加客户端 {allArticles.filter(a => a.addedToClient).length}</span>
+                  </div>
                 </SheetHeader>
                 <div className="mt-4 space-y-4">
-                  {historyDates.map((date) => (
-                    <div key={date}>
-                      <div className="mb-2 flex items-center gap-2">
-                        <span className="text-sm font-medium text-[#1A1A1A]">
-                          {date === todayKey ? '今天' : date}
-                        </span>
-                        <span className="text-xs text-[#9CA3AF]">
-                          {historyGroups[date].length} 篇
-                        </span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {historyGroups[date].map((article) => (
-                          <div
-                            key={article.id}
-                            className="rounded-md border bg-white p-2.5"
+                  {historyDates.map((date) => {
+                    const groupArticles = historyGroups[date];
+                    const industryCount = groupArticles.filter(a => a.category === 'industry').length;
+                    const newcarCount = groupArticles.filter(a => a.category === 'newcar').length;
+                    const pushedCount = groupArticles.filter(a => a.pushedToGroup).length;
+                    const clientCount = groupArticles.filter(a => a.addedToClient).length;
+                    const isExpanded = expandedDates.has(date);
+                    const allGroupSelected = groupArticles.every(a => historySelectedIds.has(a.id));
+                    const someGroupSelected = groupArticles.some(a => historySelectedIds.has(a.id));
+
+                    return (
+                      <div key={date} className="rounded-lg border bg-white">
+                        {/* Date group header */}
+                        <div className="flex items-center gap-3 border-b px-4 py-2.5">
+                          <button
+                            onClick={() => toggleDateExpanded(date)}
+                            className="flex items-center gap-1.5 text-sm font-medium text-[#1A1A1A] hover:text-[#2563EB]"
                           >
-                            <div className="flex items-start gap-2">
-                              <Badge
-                                variant="secondary"
-                                className={`shrink-0 text-[10px] font-normal ${
-                                  article.category === 'industry'
-                                    ? 'bg-[#EEF2FF] text-[#6366F1]'
-                                    : 'bg-[#ECFEFF] text-[#0891B2]'
-                                }`}
-                              >
-                                {categoryLabel(article.category)}
-                              </Badge>
-                              <span className="text-sm text-[#1A1A1A]">
-                                {article.title}
-                              </span>
-                            </div>
-                            <p className="mt-1 truncate text-xs text-[#9CA3AF]">
-                              {article.url}
-                            </p>
-                            <div className="mt-1.5 flex items-center gap-3 text-xs text-[#9CA3AF]">
-                              <span>{article.username}</span>
-                              {article.pushedToGroup && (
-                                <span className="text-green-600">已推群</span>
-                              )}
-                              {article.addedToClient && (
-                                <span className="text-orange-500">已加客户端</span>
-                              )}
-                            </div>
+                            <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
+                            {date === todayKey ? '今天' : date}
+                          </button>
+                          <div className="flex items-center gap-3 text-xs text-[#6B7280]">
+                            <span>{groupArticles.length} 篇</span>
+                            {industryCount > 0 && <span className="text-[#6366F1]">产业 {industryCount}</span>}
+                            {newcarCount > 0 && <span className="text-[#0891B2]">新车 {newcarCount}</span>}
+                            {pushedCount > 0 && <span className="text-green-600">已推群 {pushedCount}</span>}
+                            {clientCount > 0 && <span className="text-orange-500">已加客户端 {clientCount}</span>}
                           </div>
-                        ))}
+                          <div className="ml-auto flex items-center gap-2">
+                            <Checkbox
+                              checked={allGroupSelected}
+                              ref={someGroupSelected && !allGroupSelected ? undefined : undefined}
+                              onCheckedChange={() => toggleHistoryGroupSelect(date)}
+                              aria-label={`选择${date}全部`}
+                              data-state={allGroupSelected ? 'checked' : someGroupSelected ? 'indeterminate' : 'unchecked'}
+                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 gap-1 text-xs text-[#6B7280]"
+                              onClick={() => handleHistoryCopyGroup(date)}
+                            >
+                              <Copy className="h-3 w-3" />
+                              复制全部
+                            </Button>
+                          </div>
+                        </div>
+                        {/* Expanded table */}
+                        {isExpanded && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b bg-[#F8F9FA] text-xs text-[#6B7280]">
+                                  <th className="w-10 px-3 py-2"></th>
+                                  <th className="w-20 px-3 py-2 text-left">时间</th>
+                                  <th className="min-w-[200px] px-3 py-2 text-left">标题 + 链接</th>
+                                  <th className="w-28 px-3 py-2 text-left">文章ID</th>
+                                  <th className="w-24 px-3 py-2 text-left">用户名</th>
+                                  <th className="w-16 px-3 py-2 text-center">推群</th>
+                                  <th className="w-16 px-3 py-2 text-center">客户端</th>
+                                  <th className="w-20 px-3 py-2 text-center">操作</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {groupArticles.map((article) => (
+                                  <tr
+                                    key={article.id}
+                                    className={`border-b transition-colors ${
+                                      historySelectedIds.has(article.id) ? 'bg-blue-50/50' : 'hover:bg-[#F8F9FA]'
+                                    }`}
+                                  >
+                                    <td className="px-3 py-2">
+                                      <Checkbox
+                                        checked={historySelectedIds.has(article.id)}
+                                        onCheckedChange={() => toggleHistorySelect(article.id)}
+                                        aria-label={`选择 ${article.title}`}
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2 text-xs text-[#6B7280]">
+                                      {formatTime(article.createdAt)}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <div className="flex items-start gap-2">
+                                        <Badge
+                                          variant="secondary"
+                                          className={`shrink-0 text-[10px] font-normal ${
+                                            article.category === 'industry'
+                                              ? 'bg-[#EEF2FF] text-[#6366F1]'
+                                              : 'bg-[#ECFEFF] text-[#0891B2]'
+                                          }`}
+                                        >
+                                          {categoryLabel(article.category)}
+                                        </Badge>
+                                        <div className="min-w-0 flex-1">
+                                          <p className="truncate text-[#1A1A1A]">{article.title}</p>
+                                          <p className="truncate text-xs text-[#9CA3AF]">{article.url}</p>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <span
+                                        className="cursor-pointer font-mono text-xs text-[#6B7280] hover:text-[#2563EB]"
+                                        title="双击复制"
+                                        onDoubleClick={() => handleCopyArticleId(article.articleId)}
+                                      >
+                                        {article.articleId}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2 text-xs text-[#6B7280]">{article.username}</td>
+                                    <td className="px-3 py-2 text-center">
+                                      <Checkbox
+                                        checked={article.pushedToGroup}
+                                        onCheckedChange={() =>
+                                          updateAllArticles(
+                                            allArticles.map((a) =>
+                                              a.id === article.id ? { ...a, pushedToGroup: !a.pushedToGroup } : a
+                                            )
+                                          )
+                                        }
+                                        aria-label="推群"
+                                        className="border-green-500 data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2 text-center">
+                                      <Checkbox
+                                        checked={article.addedToClient}
+                                        onCheckedChange={() =>
+                                          updateAllArticles(
+                                            allArticles.map((a) =>
+                                              a.id === article.id ? { ...a, addedToClient: !a.addedToClient } : a
+                                            )
+                                          )
+                                        }
+                                        aria-label="客户端"
+                                        className="border-orange-400 data-[state=checked]:bg-orange-500 data-[state=checked]:border-orange-500"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2 text-center">
+                                      <button
+                                        onClick={() => handleHistoryCopySingle(article)}
+                                        className="text-[#9CA3AF] hover:text-[#2563EB]"
+                                        title="复制"
+                                      >
+                                        <Copy className="h-3.5 w-3.5" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {allArticles.length === 0 && (
                     <p className="py-8 text-center text-sm text-[#9CA3AF]">
                       暂无历史记录
