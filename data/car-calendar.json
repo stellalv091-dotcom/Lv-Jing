@@ -1,0 +1,11 @@
+[
+  {
+    "id": "test1",
+    "brand": "比亚迪",
+    "model": "海豹06",
+    "launchDate": "2026-09-15",
+    "category": "ev",
+    "notes": "预计15-20万",
+    "createdAt": 1725000000000
+  }
+]

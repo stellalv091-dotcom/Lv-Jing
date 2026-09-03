@@ -1,70 +1,53 @@
 # 文章工作台 - AGENTS.md
 
 ## 项目概览
-文章推送管理工作台，用于管理文章的录入、分类、推群和客户端状态跟踪。
+文章推送管理工作台，用于管理文章的录入、分类、推群和客户端状态跟踪。支持AI优化标题和新车上市日历。
 
 ## 技术栈
 - Next.js 16 (App Router) + React 19 + TypeScript 5
 - Tailwind CSS 4 + shadcn/ui
 - 文章数据：localStorage（个人不共享）
 - 用户名映射：服务端 JSON 文件（多人共享）
+- 新车日历：服务端 JSON 文件（多人共享）
+- AI功能：coze-coding-dev-sdk（LLM + FetchClient）
 
 ## 目录结构
 ```
 src/
 ├── app/
-│   ├── page.tsx              # 主页面 - 工作台（客户端组件）
-│   ├── layout.tsx            # 根布局
-│   ├── globals.css           # 全局样式
-│   └── api/usermap/route.ts  # 共享用户名映射 API（GET/POST/DELETE）
-├── components/ui/            # shadcn/ui 组件
+│   ├── page.tsx                    # 主页面 - 每日工作台
+│   ├── layout.tsx                  # 根布局
+│   ├── globals.css                 # 全局样式
+│   ├── car-calendar/page.tsx       # 新车上市日历页面
+│   └── api/
+│       ├── usermap/route.ts        # 共享用户名映射 API
+│       ├── car-calendar/route.ts   # 新车上市日历 API
+│       └── optimize-title/route.ts # AI优化标题 API
+├── components/ui/                  # shadcn/ui 组件
 ├── lib/
-│   ├── article-utils.ts      # URL解析、文本格式化、ID生成
-│   ├── store.ts              # localStorage 数据管理（文章）
-│   ├── usermap-file.ts       # 服务端用户名映射文件读写
-│   └── utils.ts              # cn() 工具函数
+│   ├── article-utils.ts            # URL解析、文本格式化、ID生成
+│   ├── store.ts                    # localStorage 数据管理
+│   ├── usermap-file.ts             # 服务端用户名映射文件读写
+│   ├── car-calendar-file.ts        # 服务端新车日历文件读写
+│   └── utils.ts                    # cn() 工具函数
 data/
-└── usermap.json              # 共享用户名映射数据文件
+├── usermap.json                    # 共享用户名映射数据
+└── car-calendar.json               # 新车上市日历数据
 ```
 
 ## 核心功能
-1. **文章录入**：输入标题+链接，选择分类（产业稿/新车稿）
-2. **自动提取**：从URL中提取文章ID和用户ID，映射用户名
-3. **多选复制**：勾选多条后批量复制（标题+换行+链接格式）
-4. **双击复制文章ID**：双击文章ID单元格即可复制
-5. **拖拽排序**：通过左侧拖拽手柄调整文章顺序
-6. **状态管理**：勾选推群/客户端状态
-7. **共享用户名映射**：通过API管理，多人共享，所有人可见可添加
-
-## 数据模型
-```typescript
-interface Article {
-  id: string;
-  title: string;
-  url: string;
-  articleId: string;    // 从URL提取
-  userId: string;       // 从URL提取
-  username: string;     // 映射得到
-  category: 'industry' | 'newcar';
-  pushedToGroup: boolean;
-  addedToClient: boolean;
-  createdAt: number;
-}
-```
+1. **每日工作台**：打开时显示空白表单，只展示今日添加的文章
+2. **历史记录**：侧边抽屉面板查看所有历史文章，按日期分组
+3. **AI优化标题**：点击按钮通过链接获取文章内容，AI优化标题至17-20字
+4. **多选复制**：勾选多条后批量复制
+5. **双击复制文章ID**：双击文章ID单元格即可复制
+6. **拖拽排序**：通过左侧拖拽手柄调整文章顺序
+7. **新车上市日历**：日历视图展示新车上市信息
 
 ## API 接口
-- `GET /api/usermap` - 获取共享用户名映射
-- `POST /api/usermap` - 批量添加映射 `{ entries: { "userId": "username" } }`
-- `DELETE /api/usermap?uid=xxx` - 删除指定映射
-
-## URL解析规则
-- 搜狐文章链接格式：`https://www.sohu.com/a/{articleId}_{userId}`
-- articleId：倒数第二组数字
-- userId：最后一组数字
+- `GET/POST/DELETE /api/usermap` - 共享用户名映射
+- `GET/POST/DELETE /api/car-calendar` - 新车上市日历
+- `POST /api/optimize-title` - AI优化标题
 
 ## 开发命令
-- 安装依赖：`pnpm install`
-- 开发：`pnpm dev`
-- 构建：`pnpm build`
-- 类型检查：`pnpm ts-check`
-- Lint：`pnpm lint`
+- `pnpm install` / `pnpm dev` / `pnpm build` / `pnpm ts-check` / `pnpm lint`
