@@ -57,7 +57,11 @@ import {
   type UserMap,
   loadArticles,
   saveArticles,
+  getUserId,
+  loadArticlesFromServer,
+  saveArticlesToServer,
 } from '@/lib/store';
+import * as XLSX from 'xlsx';
 import Link from 'next/link';
 
 type CategoryFilter = 'all' | 'industry' | 'newcar';
@@ -155,6 +159,8 @@ function groupByDate(articles: Article[]): Record<string, Article[]> {
 }
 
 export default function Home() {
+  // User ID for server-side storage
+  const [userId, setUserId] = useState<string>('');
   // Today's articles (blank on load)
   const [todayArticles, setTodayArticles] = useState<Article[]>([]);
   // All historical articles
@@ -162,6 +168,7 @@ export default function Home() {
   const [userMap, setUserMap] = useState<UserMap>({});
   const [userMapLoading, setUserMapLoading] = useState(true);
   const [filter, setFilter] = useState<CategoryFilter>('all');
+  const [loading, setLoading] = useState(true);
 
   // Input state
   const [inputTitle, setInputTitle] = useState('');
@@ -195,28 +202,49 @@ export default function Home() {
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
   const [historySelectedIds, setHistorySelectedIds] = useState<Set<string>>(new Set());
 
-  // Load articles: today's are blank, load all for history
+  // Load articles from server, today's are blank
   useEffect(() => {
-    const all = loadArticles();
-    setAllArticles(all);
-    // Today's articles: only those created today
+    const uid = getUserId();
+    setUserId(uid);
+
+    // Load articles from server
+    loadArticlesFromServer(uid).then((serverArticles) => {
+      // Also check localStorage for migration
+      const localArticles = loadArticles();
+
+      // If server has no data but local does, migrate to server
+      if (serverArticles.length === 0 && localArticles.length > 0) {
+        saveArticlesToServer(uid, localArticles);
+        setAllArticles(localArticles);
+      } else {
+        setAllArticles(serverArticles);
+      }
+      setLoading(false);
+    });
+
+    // Today's articles: only those created today (start blank)
     const todayKey = getTodayKey();
-    const today = all.filter((a) => {
+    const today = allArticles.filter((a) => {
       const d = new Date(a.createdAt);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       return key === todayKey;
     });
     setTodayArticles(today);
+
     fetchUserMap().then((map) => {
       setUserMap(map);
       setUserMapLoading(false);
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist all articles
+  // Persist all articles to server
   const updateAllArticles = useCallback((next: Article[]) => {
     setAllArticles(next);
-    saveArticles(next);
+    saveArticles(next); // Keep local cache
+    if (userId) {
+      saveArticlesToServer(userId, next); // Save to server
+    }
     // Update today's articles
     const todayKey = getTodayKey();
     const today = next.filter((a) => {
@@ -225,7 +253,7 @@ export default function Home() {
       return key === todayKey;
     });
     setTodayArticles(today);
-  }, []);
+  }, [userId]);
 
   // Filtered today articles
   const filtered = filter === 'all' ? todayArticles : todayArticles.filter((a) => a.category === filter);
@@ -304,6 +332,41 @@ export default function Home() {
       setCopiedTag('__all__');
       setTimeout(() => setCopiedTag(null), 1500);
     }
+  };
+
+  // Export to Excel
+  const handleExportExcel = () => {
+    const data = filtered.map((a) => ({
+      '日期': new Date(a.createdAt).toLocaleDateString('zh-CN'),
+      '标题': a.title,
+      '链接': a.url,
+      '文章ID': a.articleId,
+      '用户ID': a.userId,
+      '用户名': a.username,
+      '分类': a.category === 'industry' ? '产业稿' : '新车稿',
+      '已推群': a.pushedToGroup ? '是' : '否',
+      '已加客户端': a.addedToClient ? '是' : '否',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '文章列表');
+
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 12 }, // 日期
+      { wch: 40 }, // 标题
+      { wch: 50 }, // 链接
+      { wch: 15 }, // 文章ID
+      { wch: 10 }, // 用户ID
+      { wch: 12 }, // 用户名
+      { wch: 8 },  // 分类
+      { wch: 8 },  // 已推群
+      { wch: 10 }, // 已加客户端
+    ];
+
+    const fileName = `文章工作台_${getTodayKey()}.xlsx`;
+    XLSX.writeFile(wb, fileName);
   };
 
   // Delete article
@@ -972,6 +1035,20 @@ export default function Home() {
                   复制全部
                 </>
               )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportExcel}
+              disabled={filtered.length === 0}
+              className="gap-1.5"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <path d="M8 13h2l2 4 2-4h2"/>
+              </svg>
+              导出 Excel
             </Button>
           </div>
         </div>
