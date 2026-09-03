@@ -47,6 +47,9 @@ bin/
 Thumbs.db
 ehthumbs.db
 
+# Data files (user data, not for git)
+data/*.json
+
 # Logs
 output.log
 *.log

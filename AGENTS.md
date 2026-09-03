@@ -1,53 +1,67 @@
 # 文章工作台 - AGENTS.md
 
 ## 项目概览
-文章推送管理工作台，用于管理文章的录入、分类、推群和客户端状态跟踪。支持AI优化标题和新车上市日历。
+文章推送管理工作台，用于管理文章的录入、分类、推群和客户端状态跟踪。支持AI优化标题、新车上市日历和导出Excel。
 
 ## 技术栈
 - Next.js 16 (App Router) + React 19 + TypeScript 5
 - Tailwind CSS 4 + shadcn/ui
-- 文章数据：localStorage（个人不共享）
+- 文章数据：服务端 JSON 文件（按用户隔离）
 - 用户名映射：服务端 JSON 文件（多人共享）
 - 新车日历：服务端 JSON 文件（多人共享）
 - AI功能：coze-coding-dev-sdk（LLM + FetchClient）
+- Excel导出：xlsx (SheetJS)
 
 ## 目录结构
 ```
 src/
 ├── app/
-│   ├── page.tsx                    # 主页面 - 每日工作台
+│   ├── page.tsx                    # 主页面 - 每日工作台（含登录）
 │   ├── layout.tsx                  # 根布局
 │   ├── globals.css                 # 全局样式
 │   ├── car-calendar/page.tsx       # 新车上市日历页面
 │   └── api/
+│       ├── articles/route.ts       # 文章数据 API（按用户隔离）
 │       ├── usermap/route.ts        # 共享用户名映射 API
 │       ├── car-calendar/route.ts   # 新车上市日历 API
 │       └── optimize-title/route.ts # AI优化标题 API
 ├── components/ui/                  # shadcn/ui 组件
 ├── lib/
 │   ├── article-utils.ts            # URL解析、文本格式化、ID生成
-│   ├── store.ts                    # localStorage 数据管理
+│   ├── store.ts                    # 数据管理（含用户名登录）
+│   ├── articles-file.ts            # 服务端文章文件读写
 │   ├── usermap-file.ts             # 服务端用户名映射文件读写
 │   ├── car-calendar-file.ts        # 服务端新车日历文件读写
 │   └── utils.ts                    # cn() 工具函数
 data/
+├── articles.json                   # 文章数据（按用户名隔离）
 ├── usermap.json                    # 共享用户名映射数据
 └── car-calendar.json               # 新车上市日历数据
 ```
 
 ## 核心功能
-1. **每日工作台**：打开时显示空白表单，只展示今日添加的文章
-2. **历史记录**：侧边抽屉面板查看所有历史文章，按日期分组
-3. **AI优化标题**：点击按钮通过链接获取文章内容，AI优化标题至17-20字
-4. **多选复制**：勾选多条后批量复制
-5. **双击复制文章ID**：双击文章ID单元格即可复制
-6. **拖拽排序**：通过左侧拖拽手柄调整文章顺序
-7. **新车上市日历**：日历视图展示新车上市信息
+1. **用户名登录**：首次访问输入用户名，换设备输入相同用户名可看到数据
+2. **每日工作台**：打开时显示空白表单，只展示今日添加的文章
+3. **历史记录**：侧边抽屉面板查看所有历史文章，按日期分组，支持多选复制
+4. **AI优化标题**：点击按钮通过链接获取文章内容，AI优化标题至17-20字
+5. **多选复制**：勾选多条后批量复制
+6. **双击复制文章ID**：双击文章ID单元格即可复制
+7. **拖拽排序**：通过左侧拖拽手柄调整文章顺序
+8. **导出Excel**：导出当前筛选条件下的文章为Excel文件
+9. **新车上市日历**：日历视图展示新车上市信息
 
 ## API 接口
+- `GET/POST /api/articles` - 文章数据（按用户隔离）
 - `GET/POST/DELETE /api/usermap` - 共享用户名映射
 - `GET/POST/DELETE /api/car-calendar` - 新车上市日历
 - `POST /api/optimize-title` - AI优化标题
+
+## 部署说明
+当前使用文件存储（`data/*.json`），适合单服务器部署。
+
+如需部署到 Vercel 等 Serverless 平台，需要：
+1. 将文件存储改为数据库（如 Supabase）
+2. 详见 `DEPLOY.md`
 
 ## 开发命令
 - `pnpm install` / `pnpm dev` / `pnpm build` / `pnpm ts-check` / `pnpm lint`
