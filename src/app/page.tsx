@@ -145,6 +145,69 @@ async function removeUserMapEntry(uid: string): Promise<UserMap> {
   return {};
 }
 
+// User map entry component with edit functionality
+function UserMapEntry({ uid, name, onUpdate, onRemove }: {
+  uid: string;
+  name: string;
+  onUpdate: (newName: string) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(name);
+
+  const handleSave = () => {
+    if (editValue.trim() && editValue.trim() !== name) {
+      onUpdate(editValue.trim());
+    }
+    setEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSave();
+    } else if (e.key === 'Escape') {
+      setEditValue(name);
+      setEditing(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between rounded-md bg-[#F8F9FA] px-3 py-2 text-sm">
+      {editing ? (
+        <div className="flex flex-1 items-center gap-2">
+          <span className="text-[#6B7280]">{uid}</span>
+          <span className="text-[#D1D5DB]">&rarr;</span>
+          <input
+            type="text"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={handleSave}
+            autoFocus
+            className="flex-1 rounded border border-[#E5E7EB] bg-white px-2 py-0.5 text-sm focus:border-[#2563EB] focus:outline-none"
+          />
+        </div>
+      ) : (
+        <span
+          className="cursor-pointer flex-1"
+          onClick={() => setEditing(true)}
+          title="点击编辑"
+        >
+          <span className="text-[#6B7280]">{uid}</span>
+          <span className="mx-2 text-[#D1D5DB]">&rarr;</span>
+          <span className="font-medium text-[#1A1A1A] hover:text-[#2563EB]">{name}</span>
+        </span>
+      )}
+      <button
+        onClick={onRemove}
+        className="ml-2 text-[#9CA3AF] hover:text-red-500"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 // Group articles by date
 function groupByDate(articles: Article[]): Record<string, Article[]> {
   const groups: Record<string, Article[]> = {};
@@ -540,6 +603,17 @@ export default function Home() {
     if (Object.keys(entries).length > 0) {
       const updated = await addUserMapEntries(entries);
       setUserMap(updated);
+      // Update usernames in articles
+      setTodayArticles((prev) =>
+        prev.map((a) =>
+          entries[a.userId] ? { ...a, username: entries[a.userId] } : a
+        )
+      );
+      setAllArticles((prev) =>
+        prev.map((a) =>
+          entries[a.userId] ? { ...a, username: entries[a.userId] } : a
+        )
+      );
     }
     setBatchInput('');
     setBatchAdding(false);
@@ -549,6 +623,19 @@ export default function Home() {
   const handleRemoveUserMap = async (uid: string) => {
     const updated = await removeUserMapEntry(uid);
     setUserMap(updated);
+  };
+
+  // Update user mapping via API
+  const handleUpdateUserMap = async (uid: string, newName: string) => {
+    const updated = await addUserMapEntries({ [uid]: newName });
+    setUserMap(updated);
+    // Also update usernames in today's articles and all articles
+    setTodayArticles((prev) =>
+      prev.map((a) => (a.userId === uid ? { ...a, username: newName } : a))
+    );
+    setAllArticles((prev) =>
+      prev.map((a) => (a.userId === uid ? { ...a, username: newName } : a))
+    );
   };
 
   // History panel functions
@@ -898,7 +985,13 @@ export default function Home() {
                 </div>
               </SheetContent>
             </Sheet>
-            <Dialog open={userMapOpen} onOpenChange={setUserMapOpen}>
+            <Dialog open={userMapOpen} onOpenChange={(open) => {
+              setUserMapOpen(open);
+              // Refresh userMap when dialog opens
+              if (open) {
+                fetchUserMap().then((map) => setUserMap(map));
+              }
+            }}>
               <DialogTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-1.5 text-[#6B7280]">
                   <Settings2 className="h-4 w-4" />
@@ -912,29 +1005,23 @@ export default function Home() {
                 </DialogHeader>
                 <div className="space-y-4">
                   <p className="text-xs text-[#9CA3AF]">
-                    所有用户共享此映射库，添加后对所有人可见
+                    所有用户共享此映射库，点击可编辑用户名
                   </p>
-                  <div className="max-h-48 space-y-1.5 overflow-y-auto">
+                  <div className="max-h-60 space-y-1.5 overflow-y-auto">
                     {Object.entries(userMap).map(([uid, name]) => (
-                      <div
+                      <UserMapEntry
                         key={uid}
-                        className="flex items-center justify-between rounded-md bg-[#F8F9FA] px-3 py-2 text-sm"
-                      >
-                        <span>
-                          <span className="text-[#6B7280]">{uid}</span>
-                          <span className="mx-2 text-[#D1D5DB]">&rarr;</span>
-                          <span className="font-medium text-[#1A1A1A]">{name}</span>
-                        </span>
-                        <button
-                          onClick={() => handleRemoveUserMap(uid)}
-                          className="text-[#9CA3AF] hover:text-red-500"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                        uid={uid}
+                        name={name}
+                        onUpdate={(newName) => handleUpdateUserMap(uid, newName)}
+                        onRemove={() => handleRemoveUserMap(uid)}
+                      />
                     ))}
-                    {Object.keys(userMap).length === 0 && (
+                    {Object.keys(userMap).length === 0 && !userMapLoading && (
                       <p className="py-4 text-center text-sm text-[#9CA3AF]">暂无映射</p>
+                    )}
+                    {userMapLoading && (
+                      <p className="py-4 text-center text-sm text-[#9CA3AF]">加载中...</p>
                     )}
                   </div>
                   <div className="space-y-2">
