@@ -15,22 +15,29 @@ export interface Article {
 export type UserMap = Record<string, string>;
 
 const ARTICLES_KEY = 'workbench_articles';
-const USER_ID_KEY = 'workbench_user_id';
+const USERNAME_KEY = 'workbench_username';
 
-// 生成唯一用户ID
-function generateUserId(): string {
-  return 'user_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+// 获取已登录的用户名
+export function getUsername(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(USERNAME_KEY);
 }
 
-// 获取或创建用户ID
+// 设置用户名（登录）
+export function setUsername(username: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(USERNAME_KEY, username);
+}
+
+// 清除用户名（登出）
+export function clearUsername(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(USERNAME_KEY);
+}
+
+// 兼容旧版本：获取用户ID（现在返回用户名）
 export function getUserId(): string {
-  if (typeof window === 'undefined') return '';
-  let userId = localStorage.getItem(USER_ID_KEY);
-  if (!userId) {
-    userId = generateUserId();
-    localStorage.setItem(USER_ID_KEY, userId);
-  }
-  return userId;
+  return getUsername() || '';
 }
 
 // 从服务端加载文章

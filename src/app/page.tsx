@@ -58,6 +58,9 @@ import {
   loadArticles,
   saveArticles,
   getUserId,
+  getUsername,
+  setUsername,
+  clearUsername,
   loadArticlesFromServer,
   saveArticlesToServer,
 } from '@/lib/store';
@@ -159,6 +162,10 @@ function groupByDate(articles: Article[]): Record<string, Article[]> {
 }
 
 export default function Home() {
+  // Login state
+  const [username, setUsernameState] = useState<string | null>(null);
+  const [loginInput, setLoginInput] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
   // User ID for server-side storage
   const [userId, setUserId] = useState<string>('');
   // Today's articles (blank on load)
@@ -202,19 +209,31 @@ export default function Home() {
   const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
   const [historySelectedIds, setHistorySelectedIds] = useState<Set<string>>(new Set());
 
-  // Load articles from server, today's are blank
+  // Check login status on mount
   useEffect(() => {
-    const uid = getUserId();
-    setUserId(uid);
+    const storedUsername = getUsername();
+    if (storedUsername) {
+      setUsernameState(storedUsername);
+      setUserId(storedUsername);
+    }
+    fetchUserMap().then((map) => {
+      setUserMap(map);
+      setUserMapLoading(false);
+    });
+  }, []);
+
+  // Load articles when user is logged in
+  useEffect(() => {
+    if (!username) return;
 
     // Load articles from server
-    loadArticlesFromServer(uid).then((serverArticles) => {
+    loadArticlesFromServer(username).then((serverArticles) => {
       // Also check localStorage for migration
       const localArticles = loadArticles();
 
       // If server has no data but local does, migrate to server
       if (serverArticles.length === 0 && localArticles.length > 0) {
-        saveArticlesToServer(uid, localArticles);
+        saveArticlesToServer(username, localArticles);
         setAllArticles(localArticles);
       } else {
         setAllArticles(serverArticles);
@@ -230,12 +249,28 @@ export default function Home() {
       return key === todayKey;
     });
     setTodayArticles(today);
-
-    fetchUserMap().then((map) => {
-      setUserMap(map);
-      setUserMapLoading(false);
-    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username]);
+
+  // Handle login
+  const handleLogin = useCallback(() => {
+    const trimmed = loginInput.trim();
+    if (!trimmed) return;
+    setLoginLoading(true);
+    setUsername(trimmed);
+    setUsernameState(trimmed);
+    setUserId(trimmed);
+    setLoginLoading(false);
+  }, [loginInput]);
+
+  // Handle logout
+  const handleLogout = useCallback(() => {
+    clearUsername();
+    setUsernameState(null);
+    setUserId('');
+    setTodayArticles([]);
+    setAllArticles([]);
+    setLoginInput('');
   }, []);
 
   // Persist all articles to server
@@ -606,6 +641,42 @@ export default function Home() {
   const historyDates = Object.keys(historyGroups).sort((a, b) => b.localeCompare(a));
   const todayKey = getTodayKey();
 
+  // Login screen
+  if (!username) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F8F9FA]">
+        <div className="w-full max-w-sm rounded-lg border bg-white p-8 shadow-sm">
+          <h1 className="mb-2 text-center text-xl font-semibold text-[#1A1A1A]">文章工作台</h1>
+          <p className="mb-6 text-center text-sm text-[#6B7280]">输入用户名开始使用</p>
+          <div className="space-y-4">
+            <Input
+              placeholder="请输入用户名"
+              value={loginInput}
+              onChange={(e) => setLoginInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !loginLoading) {
+                  handleLogin();
+                }
+              }}
+              className="h-10"
+              autoFocus
+            />
+            <Button
+              className="w-full h-10"
+              onClick={handleLogin}
+              disabled={!loginInput.trim() || loginLoading}
+            >
+              {loginLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : '进入'}
+            </Button>
+          </div>
+          <p className="mt-4 text-center text-xs text-[#9CA3AF]">
+            用户名用于标识你的数据，换设备输入相同用户名即可恢复
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
       {/* Header */}
@@ -616,6 +687,12 @@ export default function Home() {
             <span className="text-xs text-[#9CA3AF]">{todayKey}</span>
           </div>
           <div className="flex items-center gap-2">
+            <span className="text-sm text-[#6B7280]">
+              用户：<span className="font-medium text-[#1A1A1A]">{username}</span>
+            </span>
+            <Button variant="ghost" size="sm" className="text-[#9CA3AF]" onClick={handleLogout}>
+              切换
+            </Button>
             <Link href="/car-calendar">
               <Button variant="ghost" size="sm" className="gap-1.5 text-[#6B7280]">
                 <Car className="h-4 w-4" />
