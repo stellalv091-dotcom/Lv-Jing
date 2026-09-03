@@ -1,8 +1,11 @@
 {
   "framework": "nextjs",
-  "buildCommand": "pnpm build",
-  "devCommand": "pnpm dev",
+  "buildCommand": "next build",
+  "devCommand": "next dev",
   "installCommand": "pnpm install",
   "outputDirectory": ".next",
-  "regions": ["hkg1"]
+  "regions": ["hkg1"],
+  "env": {
+    "COZE_PROJECT_ENV": "PROD"
+  }
 }
