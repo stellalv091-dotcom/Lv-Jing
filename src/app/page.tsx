@@ -123,7 +123,7 @@ async function fetchUserMap(): Promise<UserMap> {
   return {};
 }
 
-async function addUserMapEntries(entries: Record<string, string>): Promise<UserMap> {
+async function addUserMapEntries(entries: Record<string, string>): Promise<UserMap | null> {
   try {
     const res = await fetch('/api/usermap', {
       method: 'POST',
@@ -132,17 +132,17 @@ async function addUserMapEntries(entries: Record<string, string>): Promise<UserM
     });
     if (res.ok) return res.json();
   } catch { /* fallback */ }
-  return {};
+  return null;
 }
 
-async function removeUserMapEntry(uid: string): Promise<UserMap> {
+async function removeUserMapEntry(uid: string): Promise<UserMap | null> {
   try {
     const res = await fetch(`/api/usermap?uid=${encodeURIComponent(uid)}`, {
       method: 'DELETE',
     });
     if (res.ok) return res.json();
   } catch { /* fallback */ }
-  return {};
+  return null;
 }
 
 // User map entry component with edit functionality
@@ -602,18 +602,22 @@ export default function Home() {
 
     if (Object.keys(entries).length > 0) {
       const updated = await addUserMapEntries(entries);
-      setUserMap(updated);
-      // Update usernames in articles
-      setTodayArticles((prev) =>
-        prev.map((a) =>
-          entries[a.userId] ? { ...a, username: entries[a.userId] } : a
-        )
-      );
-      setAllArticles((prev) =>
-        prev.map((a) =>
-          entries[a.userId] ? { ...a, username: entries[a.userId] } : a
-        )
-      );
+      if (updated) {
+        setUserMap(updated);
+        // Update usernames in articles
+        setTodayArticles((prev) =>
+          prev.map((a) =>
+            entries[a.userId] ? { ...a, username: entries[a.userId] } : a
+          )
+        );
+        setAllArticles((prev) =>
+          prev.map((a) =>
+            entries[a.userId] ? { ...a, username: entries[a.userId] } : a
+          )
+        );
+      } else {
+        alert('添加失败，请重试');
+      }
     }
     setBatchInput('');
     setBatchAdding(false);
@@ -622,20 +626,28 @@ export default function Home() {
   // Remove user mapping via API
   const handleRemoveUserMap = async (uid: string) => {
     const updated = await removeUserMapEntry(uid);
-    setUserMap(updated);
+    if (updated) {
+      setUserMap(updated);
+    } else {
+      alert('删除失败，请重试');
+    }
   };
 
   // Update user mapping via API
   const handleUpdateUserMap = async (uid: string, newName: string) => {
     const updated = await addUserMapEntries({ [uid]: newName });
-    setUserMap(updated);
-    // Also update usernames in today's articles and all articles
-    setTodayArticles((prev) =>
-      prev.map((a) => (a.userId === uid ? { ...a, username: newName } : a))
-    );
-    setAllArticles((prev) =>
-      prev.map((a) => (a.userId === uid ? { ...a, username: newName } : a))
-    );
+    if (updated) {
+      setUserMap(updated);
+      // Also update usernames in today's articles and all articles
+      setTodayArticles((prev) =>
+        prev.map((a) => (a.userId === uid ? { ...a, username: newName } : a))
+      );
+      setAllArticles((prev) =>
+        prev.map((a) => (a.userId === uid ? { ...a, username: newName } : a))
+      );
+    } else {
+      alert('更新失败，请重试');
+    }
   };
 
   // History panel functions
