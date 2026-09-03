@@ -50,6 +50,7 @@ import {
   Car,
   ChevronDown,
   Copy,
+  RefreshCw,
 } from 'lucide-react';
 import { extractFromUrl, formatCopyText, generateId } from '@/lib/article-utils';
 import {
@@ -255,6 +256,13 @@ export default function Home() {
   const [userMapOpen, setUserMapOpen] = useState(false);
   const [batchInput, setBatchInput] = useState('');
   const [batchAdding, setBatchAdding] = useState(false);
+  const [batchMessage, setBatchMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Quick add user
+  const [quickUid, setQuickUid] = useState('');
+  const [quickName, setQuickName] = useState('');
+  const [quickAdding, setQuickAdding] = useState(false);
+  const [quickMessage, setQuickMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Delete confirm
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -588,6 +596,7 @@ export default function Home() {
     if (lines.length === 0) return;
 
     setBatchAdding(true);
+    setBatchMessage(null);
     const entries: Record<string, string> = {};
     for (const line of lines) {
       const parts = line.split(/[\s,，\t]+/);
@@ -615,12 +624,47 @@ export default function Home() {
             entries[a.userId] ? { ...a, username: entries[a.userId] } : a
           )
         );
+        setBatchMessage({ type: 'success', text: `成功添加 ${Object.keys(entries).length} 条映射` });
       } else {
-        alert('添加失败，请重试');
+        setBatchMessage({ type: 'error', text: '添加失败，请重试' });
       }
+    } else {
+      setBatchMessage({ type: 'error', text: '请输入有效的格式：用户 ID 用户名' });
     }
     setBatchInput('');
     setBatchAdding(false);
+  };
+
+  // Quick add single user mapping
+  const handleQuickAdd = async () => {
+    if (!quickUid.trim() || !quickName.trim()) return;
+
+    setQuickAdding(true);
+    setQuickMessage(null);
+
+    const entries: Record<string, string> = { [quickUid.trim()]: quickName.trim() };
+    const updated = await addUserMapEntries(entries);
+
+    if (updated) {
+      setUserMap(updated);
+      // Update usernames in articles
+      setTodayArticles((prev) =>
+        prev.map((a) =>
+          a.userId === quickUid.trim() ? { ...a, username: quickName.trim() } : a
+        )
+      );
+      setAllArticles((prev) =>
+        prev.map((a) =>
+          a.userId === quickUid.trim() ? { ...a, username: quickName.trim() } : a
+        )
+      );
+      setQuickMessage({ type: 'success', text: `已添加：${quickUid} → ${quickName}` });
+      setQuickUid('');
+      setQuickName('');
+    } else {
+      setQuickMessage({ type: 'error', text: '添加失败，请重试' });
+    }
+    setQuickAdding(false);
   };
 
   // Remove user mapping via API
